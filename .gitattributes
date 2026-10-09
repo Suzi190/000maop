@@ -1,0 +1,19 @@
+# ═══════════════════════════════════════════════════════════════════
+# 统一在仓库里以 LF 存储。
+# 原因有两个：
+#   1. CI 在 Linux runner 上执行 workflow 里的 run: 脚本，CRLF 会让
+#      「mkdir -p out」这类命令带上尾随 \r 从而失败；
+#   2. Windows 默认 core.autocrlf=true，换台机器编辑就可能把 CRLF 提交进来。
+# 把规则写进仓库，任何人 clone 后行为都一致。
+# ═══════════════════════════════════════════════════════════════════
+* text=auto eol=lf
+
+# 二进制文件不做任何换行符 / 编码转换
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.webp     binary
+*.ico      binary
+*.jks      binary
+*.keystore binary
+*.apk      binary

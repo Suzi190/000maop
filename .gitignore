@@ -1,0 +1,28 @@
+# ── Android / Gradle ───────────────────────────────────────────────
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/captures/
+android/app/src/main/assets/index.html
+android/.cxx/
+.cxx/
+
+# ── IDE ────────────────────────────────────────────────────────────
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# ── 构建产物 ───────────────────────────────────────────────────────
+out/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# ── 系统杂项 ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log

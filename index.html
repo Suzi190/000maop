@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, viewport-fit=cover" />
     <script>
       // ═══════════════════════════════════════════════════════════════════
       // Edge Android / 华为鸿蒙狐猴浏览器：动态注入 <meta name="color-scheme" content="only light">
@@ -128,6 +128,117 @@
             // 初始设置
             setTimeout(setViewportHeight, 100);
           }
+        }
+      })();
+    </script>
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         Android APK 导出桥接垫片（仅原生壳内生效）
+         原生壳（见仓库 android/ 目录）会注入 window.NativeBridge。
+         若 NativeBridge 不存在（普通浏览器 / iOS Safari / 微信等），
+         本脚本立刻返回，不注册任何行为，导出逻辑完全保持原样。
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <script>
+      (function () {
+        var bridge = window.NativeBridge;
+        if (!bridge || typeof bridge.beginSave !== 'function') return;
+        if (window.__maopNativeExportInstalled) return;
+        window.__maopNativeExportInstalled = true;
+
+        // ── 1. 缓存 blob URL 对应的 Blob ───────────────────────────────────
+        // 应用导出后 100ms 就会 revokeObjectURL，若那时再按 URL 取数据会失败，
+        // 所以提前把 Blob 本身记下来（revoke 之后再延迟清理，避免内存常驻）。
+        var blobByUrl = Object.create(null);
+        var nativeCreateObjectURL = URL.createObjectURL;
+        var nativeRevokeObjectURL = URL.revokeObjectURL;
+
+        URL.createObjectURL = function (obj) {
+          var url = nativeCreateObjectURL.apply(this, arguments);
+          try {
+            if (obj && typeof obj.size === 'number') blobByUrl[url] = obj;
+          } catch (e) {}
+          return url;
+        };
+        URL.revokeObjectURL = function (url) {
+          try {
+            window.setTimeout(function () { delete blobByUrl[url]; }, 120000);
+          } catch (e) {}
+          return nativeRevokeObjectURL.apply(this, arguments);
+        };
+
+        // ── 2. 分片读取 Blob，经 base64 交给原生写入系统「下载」目录 ─────────
+        var CHUNK_SIZE = 512 * 1024;
+
+        function saveToNative(blob, filename) {
+          if (!blob) return false;
+          try {
+            bridge.beginSave(filename || 'download.bin', blob.type || 'application/octet-stream');
+          } catch (e) {
+            return false;
+          }
+          var offset = 0;
+          var broken = false;
+
+          function pushNextChunk() {
+            if (broken) return;
+            if (offset >= blob.size) {
+              try { bridge.endSave(); } catch (e) {}
+              return;
+            }
+            var part = blob.slice(offset, offset + CHUNK_SIZE);
+            offset += CHUNK_SIZE;
+            var reader = new FileReader();
+            reader.onload = function () {
+              try {
+                var text = String(reader.result || '');
+                var comma = text.indexOf(',');
+                bridge.appendChunk(comma < 0 ? '' : text.substring(comma + 1));
+              } catch (e) {
+                broken = true;
+              }
+              if (broken) {
+                try { bridge.abortSave('读取导出数据失败'); } catch (e) {}
+                return;
+              }
+              pushNextChunk();
+            };
+            reader.onerror = function () {
+              broken = true;
+              try { bridge.abortSave('读取导出数据失败'); } catch (e) {}
+            };
+            reader.onabort = reader.onerror;
+            reader.readAsDataURL(part);
+          }
+
+          pushNextChunk();
+          return true;
+        }
+
+        // ── 3. 拦截 <a download> + blob: 的点击 ────────────────────────────
+        // 应用的 _z() 回退路径正是 createObjectURL -> <a download> -> a.click()；
+        // Android WebView 不会为 blob URL 触发系统下载，必须在这里接管。
+        var nativeAnchorClick = HTMLAnchorElement.prototype.click;
+        HTMLAnchorElement.prototype.click = function () {
+          try {
+            var href = this.href || '';
+            if (this.hasAttribute('download') && href.indexOf('blob:') === 0) {
+              var blob = blobByUrl[href];
+              var filename = this.getAttribute('download') || 'download.bin';
+              if (blob && saveToNative(blob, filename)) return;
+            }
+          } catch (e) {}
+          return nativeAnchorClick.apply(this, arguments);
+        };
+
+        // ── 4. 关闭 Web Share，确保 _z() 一定走上面的下载分支 ──────────────
+        // 个别 WebView 分支实现了 navigator.share，会弹出无法落地的分享面板。
+        try {
+          Object.defineProperty(navigator, 'canShare', {
+            value: function () { return false; },
+            configurable: true,
+            writable: true
+          });
+        } catch (e) {
+          try { navigator.canShare = function () { return false; }; } catch (e2) {}
         }
       })();
     </script>

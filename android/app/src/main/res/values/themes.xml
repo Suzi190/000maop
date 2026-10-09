@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      沉浸式全屏主题：
+      - 无 ActionBar，内容铺满整屏
+      - 状态栏 / 导航栏完全透明（系统栏由 MainActivity 主动隐藏）
+    -->
+    <style name="Theme.MpPhone" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+    </style>
+</resources>

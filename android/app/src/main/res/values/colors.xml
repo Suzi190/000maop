@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 与网页应用一致的浅色背景，避免全屏时出现灰色边缘 -->
+    <color name="window_background">#FFFDFBFF</color>
+    <!-- 启动图标背景（取自应用主色马卡龙粉） -->
+    <color name="ic_launcher_background">#FFFF9AA8</color>
+</resources>

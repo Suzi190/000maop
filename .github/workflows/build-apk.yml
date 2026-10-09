@@ -1,0 +1,108 @@
+name: 构建 MpPhone APK
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'index.html'
+      - 'android/**'
+      - '.github/workflows/build-apk.yml'
+  pull_request:
+    paths:
+      - 'index.html'
+      - 'android/**'
+      - '.github/workflows/build-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: 构建 APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 准备 Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 安装 Android SDK 组件
+        run: |
+          sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+          sdkmanager --list_installed
+
+      - name: 缓存调试签名（保证多次构建签名一致，可直接覆盖安装）
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: maop-debug-keystore-v1
+
+      - name: 确保调试签名存在
+        run: |
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            echo "未命中缓存，生成一个固定的调试签名"
+            mkdir -p "$HOME/.android"
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android -keypass android \
+              -alias AndroidDebugKey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          else
+            echo "已使用缓存中的调试签名"
+          fi
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android | head -n 5
+
+      - name: 安装 Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: 构建 APK
+        working-directory: android
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: 整理产物
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/app-release.apk out/MpPhone.apk
+          ls -lh out/
+
+      - name: 上传 APK 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: MpPhone-apk
+          path: out/MpPhone.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: 发布到 latest Release
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: MpPhone APK（最新构建）
+          make_latest: true
+          body: |
+            ### MpPhone APK
+
+            自动构建，每次推送 main 分支都会更新这个 Release。
+
+            - 提交：`${{ github.sha }}`
+            - 分支：`${{ github.ref_name }}`
+            - 直接下载：https://github.com/${{ github.repository }}/releases/latest/download/MpPhone.apk
+
+            安装前请在手机上允许「安装未知来源应用」。
+          files: out/MpPhone.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

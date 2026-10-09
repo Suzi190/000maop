@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MpPhone</string>
+
+    <!-- 文件选择器标题 -->
+    <string name="choose_file">选择文件</string>
+
+    <!-- 导出结果提示 -->
+    <string name="export_saved">已保存到「下载」：%1$s</string>
+    <string name="export_saved_other">已保存：%1$s</string>
+    <string name="export_failed">导出失败，请重试</string>
+    <string name="export_cancelled">已取消导出</string>
+</resources>

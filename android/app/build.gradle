@@ -1,0 +1,72 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.mpphone.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.mpphone.app"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    buildTypes {
+        debug {
+            // 调试包沿用默认 debug 签名
+        }
+        release {
+            // 单文件 Web 应用没有需要混淆的 Java 代码，保持关闭即可
+            minifyEnabled false
+            // 复用 debug 签名，保证 CI 每次产物签名一致、可直接覆盖安装
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+        encoding 'UTF-8'
+    }
+
+    lint {
+        // 不因为 lint 提示而中断 CI 构建
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.webkit:webkit:1.11.0'
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 构建时自动把「仓库根目录的 index.html」复制进 assets，
+// 保证网页版与 APK 共用同一份源文件，不需要手工同步副本。
+// ═══════════════════════════════════════════════════════════════════
+def webAppSource = rootProject.file('../index.html')
+def webAppAssets = file('src/main/assets')
+
+tasks.register('copyWebApp', Copy) {
+    // 声明为「必需的输入文件」：万一根目录 index.html 丢失，
+    // 构建会直接报错，而不是打出一个白屏 APK
+    inputs.file(webAppSource)
+    from webAppSource
+    into webAppAssets
+    doFirst {
+        logger.lifecycle("打包 Web 资源: ${webAppSource} -> ${webAppAssets}")
+    }
+}
+
+// 让 Web 资源在构建正式开始前就位。
+// 这里用 matching + configureEach 而不是 tasks.named('preBuild')，
+// 是为了兼容不同 AGP 版本创建 preBuild 任务的时机差异，避免配置阶段抛 UnknownTaskException。
+afterEvaluate {
+    tasks.matching { it.name == 'preBuild' }.configureEach {
+        dependsOn 'copyWebApp'
+    }
+}
