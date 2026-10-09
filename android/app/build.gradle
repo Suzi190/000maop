@@ -39,6 +39,26 @@ android {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// 依赖版本对齐：排除 Kotlin 合并后残留的旧「空壳」模块
+//
+// appcompat 1.7.0 会带来 kotlin-stdlib:1.8.22，而传递依赖里同时还挂着
+// kotlin-stdlib-jdk7 / kotlin-stdlib-jdk8 : 1.6.21。自 Kotlin 1.8 起，
+// 这两个模块里的类已经被合并进 kotlin-stdlib，新旧版本同时存在于
+// classpath 就会让打包前的检查任务直接失败：
+//
+//   Execution failed for task ':app:checkReleaseDuplicateClasses'.
+//   Duplicate class kotlin.internal.jdk8.JDK8PlatformImplementations
+//     found in modules kotlin-stdlib-1.8.22.jar and kotlin-stdlib-jdk8-1.6.21.jar
+//
+// 1.8.22 的 kotlin-stdlib 已包含这些类，因此把两个旧空壳整体排除即可；
+// 这样不引入新的坐标，也不依赖任何额外产物，比「强制升版本」更稳。
+// ═══════════════════════════════════════════════════════════════════
+configurations.configureEach {
+    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
+    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
+}
+
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.webkit:webkit:1.11.0'
