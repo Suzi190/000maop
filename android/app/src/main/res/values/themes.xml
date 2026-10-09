@@ -6,7 +6,13 @@
       - 状态栏 / 导航栏完全透明（系统栏由 MainActivity 主动隐藏）
     -->
     <style name="Theme.MpPhone" parent="Theme.AppCompat.Light.NoActionBar">
-        <item name="android:windowBackground">@color/window_background</item>
+        <!--
+          用与网页同款的渐变，而不是纯色：
+          它是「启动窗口背景」，也是系统栏/挖孔区域万一露出时看到的东西。
+          换成渐变的目的是让任何缝隙都与页面无缝衔接（原来那个近白色
+          #FFFDFBFF 就是用户看到的「顶部白条」）。
+        -->
+        <item name="android:windowBackground">@drawable/window_background</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>

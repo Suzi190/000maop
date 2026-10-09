@@ -76,6 +76,35 @@
         }
       })();
 
+      // ===================================================================
+      // Android APK（原生壳内）重 GPU 效果降级：刻意复用上面那套规则
+      //
+      // safari-ios26-fix 这 13 条规则本来就是为「重 GPU 效果叠加导致显存
+      // 爆满 → 卡死 / 白屏」写的，与浏览器引擎无关，安卓 WebView 同理：
+      //   · backdrop-blur-lg/xl/2xl/3xl → 从 Tailwind 默认的 24/40/64px 压到 6px
+      //   · backdrop-blur-sm/md         → 直接去掉毛玻璃
+      //   · [style*=will-change]        → will-change:auto（清掉强制合成层）
+      //   · [style*=translateZ]         → transform:none（清掉图层提升）
+      //   · .overflow-y-auto 等滚动容器  → contain:layout style
+      //   · .animate-float / -pulse     → 停掉无限循环动画
+      // 类名里带 safari 只是历史原因，这里是有意复用，别去改那 13 条规则。
+      //
+      // 必须同步执行且在 React 挂载之前，否则首帧仍会按原效果渲染一次、
+      // 白挨一次卡顿。仅当 window.NativeBridge 存在（= 运行在打包后的 APK 里）
+      // 时生效，普通浏览器 / iOS / 微信内打开完全不受影响。
+      // ===================================================================
+      (function() {
+        if (!window.NativeBridge) return;
+        document.documentElement.classList.add('safari-ios26-fix');
+        if (document.body) {
+          document.body.classList.add('safari-ios26-fix');
+        } else {
+          document.addEventListener('DOMContentLoaded', function() {
+            document.body.classList.add('safari-ios26-fix');
+          });
+        }
+      })();
+
       // ═══════════════════════════════════════════════════════════════════
       // 缓存破坏机制 — 解决 iOS Safari 加载旧版本的问题
       // viteSingleFile 将所有代码内联到 index.html，但 iOS Safari
@@ -93,10 +122,16 @@
             localStorage.setItem('app_version', APP_VERSION);
             // 版本不匹配：强制硬刷新（绕过缓存）
             // 使用 URL 加时间戳的方式绕过 Safari 缓存
-            var url = new URL(window.location.href);
-            url.searchParams.set('_v', Date.now().toString());
-            window.location.replace(url.toString());
-            return; // 阻止后续脚本执行
+            //
+            // 但在 Android APK 里必须跳过：文件本身随 APK 一起更新，
+            // 根本不存在缓存问题；而每次重新打包版本号都会变，
+            // 这一下整页重载会让「升级后首次启动」的白屏时间直接翻倍。
+            if (!window.NativeBridge) {
+              var url = new URL(window.location.href);
+              url.searchParams.set('_v', Date.now().toString());
+              window.location.replace(url.toString());
+              return; // 阻止后续脚本执行
+            }
           }
           localStorage.setItem('app_version', APP_VERSION);
         } catch(e) {

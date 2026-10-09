@@ -9,9 +9,12 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
 import android.webkit.CookieManager;
 import android.webkit.PermissionRequest;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -47,6 +50,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQ_FILE_CHOOSER = 1001;
     private static final int REQ_CAMERA_PERMISSION = 1002;
 
+    private ViewGroup rootView;
     private WebView webView;
     private FileExporter fileExporter;
     private ValueCallback<Uri[]> pendingFileChooser;
@@ -55,13 +59,28 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // ── 沉浸式全屏的关键一步 ───────────────────────────────────────
+        // 让 DecorView 不再把系统栏的 inset 吃成自己的 padding。
+        // 只调 hide(systemBars()) 是不够的：窗口仍会按系统栏内缩布局，
+        // 上方那条缝里露出的就是主题的 windowBackground —— 也就是「顶部白条」。
+        // 必须在 setContentView 之前调用。
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+
         setContentView(R.layout.activity_main);
 
+        rootView = findViewById(R.id.root);
         fileExporter = new FileExporter();
+
+        // 切角模式 / 系统栏颜色，只在这里设一次
+        applyEdgeToEdgeSetup();
 
         webView = findViewById(R.id.webview);
         setupWebView();
-        applyImmersiveMode();
+
+        // decor 在 onCreate 阶段尚未 attach，此时 hide() 会被 Android 11+ 忽略，
+        // 于是启动瞬间能瞥到状态栏。等首帧之后再补一次。
+        getWindow().getDecorView().post(this::hideSystemBars);
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -105,8 +124,13 @@ public class MainActivity extends AppCompatActivity {
         settings.setTextZoom(100);
         // 允许 https 页面访问 http 接口（自建中转 / localhost MCP 等）
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        // 提前栅格化屏幕外的内容，长列表滚动更跟手
+        settings.setOffscreenPreRaster(true);
 
-        webView.setBackgroundColor(Color.TRANSPARENT);
+        // 用不透明的应用底色，而不是 TRANSPARENT：
+        // 透明 WebView 会强制合成器与下层做混合，是首帧/重绘时「白闪」的来源。
+        // 这个颜色取自页面 body 渐变的起点，加载期间几乎看不出反差。
+        webView.setBackgroundColor(ContextCompat.getColor(this, R.color.window_background));
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         webView.setFitsSystemWindows(false);
         // 方便用 chrome://inspect 调试，不影响正常使用
@@ -140,6 +164,20 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 return openExternallyIfNeeded(Uri.parse(url));
+            }
+
+            /**
+             * 渲染进程崩溃时 WebView 会永久留白，而且**不会自愈**，
+             * 用户看到的就是「动不动白屏」。最常见的诱因是 GPU 显存被大量
+             * backdrop-filter / will-change 图层耗尽而被系统杀掉。
+             * 必须由宿主销毁这个实例并重建一个新的。
+             *
+             * @return true 表示事件已由宿主消费，WebView 不再自行处理。
+             */
+            @Override
+            public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                recreateWebView();
+                return true;
             }
         });
 
@@ -253,8 +291,10 @@ public class MainActivity extends AppCompatActivity {
     // 沉浸式全屏
     // ────────────────────────────────────────────────────────────────
 
-    private void applyImmersiveMode() {
-        // 刘海屏：允许内容铺到挖孔区域
+    private void applyEdgeToEdgeSetup() {
+        // 刘海屏：允许内容铺到挖孔区域。
+        // SHORT_EDGES 已覆盖竖屏顶部 / 横屏两侧的挖孔，
+        // 不需要用 ALWAYS 把内容进一步压到刘海下面去。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             WindowManager.LayoutParams attrs = getWindow().getAttributes();
             attrs.layoutInDisplayCutoutMode =
@@ -262,31 +302,72 @@ public class MainActivity extends AppCompatActivity {
             getWindow().setAttributes(attrs);
         }
 
+        // 系统栏完全透明。
+        // 注意：Android 15 起这两个调用已是 no-op，全屏真正依赖的是
+        // onCreate 里的 setDecorFitsSystemWindows(false) + 下面的 hideSystemBars()。
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.TRANSPARENT);
+    }
 
+    /**
+     * 隐藏系统栏。幂等，可重复调用。
+     */
+    private void hideSystemBars() {
         WindowInsetsControllerCompat controller =
                 WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
         controller.hide(WindowInsetsCompat.Type.systemBars());
+        // 从屏幕边缘上滑时临时唤出系统栏，松手自动隐藏
         controller.setSystemBarsBehavior(
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+    }
 
-        if (webView != null) {
-            webView.setPadding(0, 0, 0, 0);
+    /**
+     * 渲染进程崩溃后重建 WebView。
+     *
+     * <p>崩溃过的 WebView 实例无法复用，必须先脱离视图树并 destroy，
+     * 再新建一个挂回根布局，否则用户会一直盯着白屏。</p>
+     */
+    private void recreateWebView() {
+        if (rootView == null) {
+            return;
         }
+        if (webView != null) {
+            webView.removeJavascriptInterface("NativeBridge");
+            rootView.removeView(webView);
+            webView.destroy();
+            webView = null;
+        }
+
+        webView = new WebView(this);
+        webView.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        // 插到最底层，与 activity_main.xml 中的层级保持一致
+        rootView.addView(webView, 0);
+        setupWebView();
+        webView.loadUrl(APP_URL);
+
+        hideSystemBars();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        applyImmersiveMode();
+        if (webView != null) {
+            // 与 onPause() 里的 webView.onPause() 配对。
+            // 少了这一句，从后台回来 WebView 会一直停留在暂停/节流状态，
+            // 表现就是又卡又容易白屏。
+            webView.onResume();
+        }
+        hideSystemBars();
     }
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) {
-            applyImmersiveMode();
+            // 只做幂等的 hide，不再 setAttributes()：
+            // 每次焦点变化都改窗口属性会触发一次 relayout，本身就在掉帧。
+            hideSystemBars();
         }
     }
 

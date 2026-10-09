@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 与网页应用一致的浅色背景，避免全屏时出现灰色边缘 -->
-    <color name="window_background">#FFFDFBFF</color>
+    <!--
+      取网页 body 渐变的起点色 linear-gradient(135deg, #fff0f5, #f0f8ff)。
+      两个用途：
+        1) WebView 的不透明底色（不要用 TRANSPARENT，会强制合成器混合、产生白闪）；
+        2) 需要静态纯色时的兜底（真正的窗口背景是 @drawable/window_background 的渐变）。
+      原来是 #FFFDFBFF（近白）—— 那正好就是沉浸式下露出来的「顶部白条」的颜色。
+    -->
+    <color name="window_background">#FFF0F5</color>
     <!-- 启动图标背景（取自应用主色马卡龙粉） -->
     <color name="ic_launcher_background">#FFFF9AA8</color>
 </resources>

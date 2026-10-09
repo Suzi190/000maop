@@ -244,7 +244,8 @@ keytool -genkeypair -v -keystore release.jks \
 ### 2. 全屏后底部 UI 被手势条挡住
 
 `index.html` 里用了多处 `env(safe-area-inset-bottom)`，配合 `viewport-fit=cover` 会自动留出安全距离。
-如果某个页面还是贴到了最底下，可以把 `MainActivity.applyImmersiveMode()` 改成只隐藏状态栏：
+如果某个页面还是贴到了最底下，可以把 `MainActivity.hideSystemBars()` 里的
+`WindowInsetsCompat.Type.systemBars()` 改成只隐藏状态栏（保留导航栏）：
 
 ```java
 controller.hide(WindowInsetsCompat.Type.statusBars());
