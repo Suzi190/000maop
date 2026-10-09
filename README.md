@@ -130,18 +130,27 @@ buildTypes {
 CI 里用 `actions/cache` 缓存了 `~/.android/debug.keystore`：
 
 ```yaml
-- uses: actions/cache@v4
+- uses: actions/cache@v6
   with:
     path: ~/.android/debug.keystore
     key: maop-debug-keystore-v1
 ```
 
+命中缓存就直接复用；未命中才用 `keytool` 现生成一个并为本次运行保存。
+
 **这样做的意义**：Android 只在「签名一致」时才允许覆盖安装。
 如果每次构建都用一个新的随机 debug keystore，用户就得先卸载旧版才能装新版，**本地数据会一起被清掉**。
 缓存之后签名稳定，可以直接覆盖升级，IndexedDB / localStorage 里的数据都保留。
 
-> 如果某次不小心清掉了缓存（或改了 `key`），需要卸载旧版重装。
-> 想彻底掌握签名，可以自己 `keytool` 生成一个 keystore，用 `secrets` 传给 CI。
+> ⚠️ **这个机制有两个已知缺口**：
+>
+> 1. GitHub 的缓存**超过 7 天没有被访问就会被自动清理**；
+> 2. `actions/cache` 的保存步骤是 `post-if: success()` —— **构建失败的那一次不会保存缓存**。
+>
+> 缓存一旦丢失，下一次构建就会生成新的 key，那个 APK **无法覆盖安装**，
+> 必须卸载旧版才能装，**本地 IndexedDB / localStorage 数据会一起消失**。
+>
+> 因此：**每次升级前，先用应用内的「导出」存一份数据**。想彻底根治，见下面的「换成自己的固定签名」。
 
 如果想换成自己的签名，在 `android/app/build.gradle` 里加：
 
@@ -157,6 +166,25 @@ signingConfigs {
 ```
 
 （记得在 `buildTypes.release` 里把 `signingConfig signingConfigs.debug` 换成 `signingConfigs.release`。）
+
+具体做法：
+
+```bash
+# 1) 本地生成一次，务必长期保管好 —— 丢了就再也无法给同一应用签名升级
+keytool -genkeypair -v -keystore release.jks \
+  -alias mpphone -keyalg RSA -keysize 2048 -validity 10000 \
+  -dname "CN=MpPhone, O=MpPhone, C=CN"
+
+# 2) 转成 base64 文本（Windows PowerShell，会复制到剪贴板）
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("release.jks")) | Set-Clipboard
+```
+
+3) 到仓库 **Settings → Secrets and variables → Actions** 新建 secret
+   （建议 `KEYSTORE_BASE64` / `KEYSTORE_PASSWORD` / `KEY_ALIAS` / `KEY_PASSWORD`）；
+4) 改 `build-apk.yml`，在构建前把 `KEYSTORE_BASE64` 解码还原成 `android/keystore/release.jks`。
+
+> 第 4 步目前**还没有做** —— 现在的 workflow 只有「缓存 debug 签名」这一条路。
+> 在你完成上面改造之前，请把「导出备份」当作升级前的固定动作。
 
 ---
 
