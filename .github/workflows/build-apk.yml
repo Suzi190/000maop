@@ -24,24 +24,74 @@ jobs:
 
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 安装 JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
 
+      # 不再使用第三方 android-actions/setup-android：
+      # 它基于已废弃的 Node 20，实测在 runner 上启动 9 秒即崩溃。
+      # GitHub 的 ubuntu-latest 镜像本身就自带 Android SDK，自己定位即可，少一个依赖。
       - name: 准备 Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: 安装 Android SDK 组件
+        shell: bash
         run: |
-          sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-          sdkmanager --list_installed
+          set -euo pipefail
+
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -z "$SDK_ROOT" ] && [ -d /usr/local/lib/android/sdk ]; then
+            SDK_ROOT=/usr/local/lib/android/sdk
+          fi
+          if [ -z "$SDK_ROOT" ] || [ ! -d "$SDK_ROOT" ]; then
+            echo "::error::镜像里找不到 Android SDK 目录"
+            exit 1
+          fi
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT"     >> "$GITHUB_ENV"
+          echo "SDK_ROOT=$SDK_ROOT"
+
+          SDKMGR="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMGR" ]; then
+            for candidate in \
+              "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+              "$SDK_ROOT/cmdline-tools/bin/sdkmanager" \
+              "$SDK_ROOT/tools/bin/sdkmanager"; do
+              if [ -x "$candidate" ]; then SDKMGR="$candidate"; break; fi
+            done
+          fi
+          if [ -z "$SDKMGR" ]; then
+            echo "镜像里没有 cmdline-tools，改用官方压缩包自备一份"
+            ZIP=/tmp/commandlinetools.zip
+            curl -fsSL -o "$ZIP" \
+              https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            rm -rf /tmp/cmdline-tools "$SDK_ROOT/cmdline-tools/latest"
+            unzip -q "$ZIP" -d /tmp
+            mkdir -p "$SDK_ROOT/cmdline-tools"
+            mv /tmp/cmdline-tools "$SDK_ROOT/cmdline-tools/latest"
+            SDKMGR="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          echo "SDKMGR=$SDKMGR"
+
+          # SDK 目录属主通常是 runner 用户；万一不可写就退回 sudo（runner 上 sudo 免密）
+          SUDO=""
+          if [ ! -w "$SDK_ROOT" ]; then
+            echo "SDK 目录不可写，安装步骤改用 sudo"
+            SUDO="sudo --preserve-env=JAVA_HOME"
+          fi
+
+          $SUDO bash -c "yes | '$SDKMGR' --sdk_root='$SDK_ROOT' --licenses > /dev/null 2>&1 || true"
+          $SUDO "$SDKMGR" --sdk_root="$SDK_ROOT" --install \
+            "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          "$SDKMGR" --sdk_root="$SDK_ROOT" --list_installed
+
+          # 明确告诉 AGP SDK 在哪，不依赖环境变量推断
+          echo "sdk.dir=$SDK_ROOT" > android/local.properties
+          cat android/local.properties
 
       - name: 缓存调试签名（保证多次构建签名一致，可直接覆盖安装）
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.android/debug.keystore
           key: maop-debug-keystore-v1
@@ -63,7 +113,7 @@ jobs:
           keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android | head -n 5
 
       - name: 安装 Gradle 8.9
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.9'
 
@@ -78,7 +128,7 @@ jobs:
           ls -lh out/
 
       - name: 上传 APK 产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: MpPhone-apk
           path: out/MpPhone.apk
@@ -88,7 +138,7 @@ jobs:
       - name: 发布到 latest Release
         if: github.event_name != 'pull_request'
         continue-on-error: true
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: latest
           name: MpPhone APK（最新构建）
